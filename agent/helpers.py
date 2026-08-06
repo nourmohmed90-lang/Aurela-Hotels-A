@@ -1,6 +1,5 @@
 import json
 from typing import Any
-from google.genai import types as gtypes
 from mcp import types
 
 
@@ -35,17 +34,19 @@ def coerce(raw: str, json_type: str) -> Any:
     return raw
 
 
-def mcp_tools_to_gemini(tools: list[types.Tool]) -> list[gtypes.Tool]:
-    """Convert MCP tools list into Gemini Function Declarations format."""
-    declarations = [
-        gtypes.FunctionDeclaration(
-            name=tool.name,
-            description=tool.description or "",
-            parameters=tool.inputSchema,
-        )
+def mcp_tools_to_openai(tools: list[types.Tool]) -> list[dict[str, Any]]:
+    """Convert MCP tools list into OpenAI function calling format."""
+    return [
+        {
+            "type": "function",
+            "function": {
+                "name": tool.name,
+                "description": tool.description or "",
+                "parameters": tool.inputSchema,
+            }
+        }
         for tool in tools
     ]
-    return [gtypes.Tool(function_declarations=declarations)] if declarations else []
 
 
 async def call_tool_with_progress(

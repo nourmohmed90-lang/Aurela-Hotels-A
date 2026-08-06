@@ -23,7 +23,7 @@ class AgentConfig:
 
     # LLM credentials & model
     gemini_api_key: str | None
-    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_model: str = "gemini-2.5-flash"
 
     # elicitation
     scripted_elicitation_responses: tuple[dict, ...] = field(default_factory=tuple)
@@ -68,6 +68,9 @@ def load_config() -> AgentConfig:
         }
     )
 
+    gemini_key = os.environ.get("GEMINI_API_KEY")
+    gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+
     return AgentConfig(
         transport_mode=transport_mode,
         stdio_command=os.environ.get("MCP_STDIO_COMMAND", "python"),
@@ -76,8 +79,8 @@ def load_config() -> AgentConfig:
         ),
         http_url=http_url,
         http_headers=http_headers,
-        gemini_api_key=os.environ.get("GEMINI_API_KEY"),
-        gemini_model=os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite"),
+        gemini_api_key=gemini_key,
+        gemini_model=gemini_model,
         request_timeout_seconds=float(os.environ.get("MCP_REQUEST_TIMEOUT", "30")),
         interactive_elicitation=interactive,
     )

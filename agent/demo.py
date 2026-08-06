@@ -91,7 +91,7 @@ async def run(auto: bool) -> None:
 
         # 7. LLM Reasoning / Turn Check
         _section("7) TESTING LLM INTELLIGENCE (RUN_TURN)")
-        if agent._llm:
+        if agent._openai_client:
             print("Sending query to Gemini...")
             reply = await agent.run_turn("What compensation policies apply for room maintenance issues?")
             print("Gemini Answer:\n", reply)

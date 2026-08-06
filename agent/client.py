@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import os
 from contextlib import AsyncExitStack
 from typing import Any
 
 from google import genai
-from google.genai import types as gtypes
+from google.genai import types as genai_types
 from mcp import ClientSession, types as mcp_types
 
 import agent.elicitation
@@ -16,7 +18,7 @@ from agent.config import AgentConfig
 from agent.handshake import NegotiatedCapabilities, perform_handshake
 from agent.helpers import (
     call_tool_with_progress,
-    mcp_tools_to_gemini,
+    mcp_tools_to_openai,
     tool_result_to_text,
 )
 from agent.transport import open_transport
@@ -39,11 +41,10 @@ class AureliaAgent:
         )
         self._pending_notification_tasks: list[asyncio.Task[None]] = []
 
-        self._llm = (
-            genai.Client(api_key=config.gemini_api_key)
-            if config.gemini_api_key
-            else None
-        )
+        api_key = os.getenv("GEMINI_API_KEY") or config.gemini_api_key
+        self._client = genai.Client(api_key=api_key) if api_key else None
+        self._openai_client = self._client
+        self._llm = self._client
 
     # Lifecycle Management
     async def __aenter__(self) -> AureliaAgent:
@@ -112,7 +113,7 @@ class AureliaAgent:
     # Reasoning Loop (Gemini LLM)
     async def run_turn(self, user_message: str, *, system: str | None = None) -> str:
         """Run single conversational turn with tool execution loop."""
-        if self._llm is None:
+        if self._client is None:
             raise RuntimeError("GEMINI_API_KEY is required to run the agent loop.")
         assert self.session is not None
         if system is None:
@@ -130,44 +131,79 @@ class AureliaAgent:
         - If the user asks what rooms are available, use search_available_rooms with room_type="all".
         - Do not call search_all_branches unless the user explicitly asks to search all branches or no rooms are found.
         """
-        config = gtypes.GenerateContentConfig(
-            system_instruction=system,
-            tools=mcp_tools_to_gemini(self.tools),
-        )
+        
+        # Read the model name from GEMINI_MODEL env var, defaulting to self.config.gemini_model, then gemini-2.5-flash
+        model_name = os.getenv("GEMINI_MODEL") or self.config.gemini_model or "gemini-2.5-flash"
+        if model_name.startswith("models/"):
+            model_name = model_name[7:]
 
-        contents: list[Any] = [user_message]
+        # Convert MCP tools to google-genai tools format
+        tools_list = []
+        if self.tools:
+            decls = []
+            for tool in self.tools:
+                decls.append(
+                    genai_types.FunctionDeclaration(
+                        name=tool.name,
+                        description=tool.description or "",
+                        parameters=tool.inputSchema,
+                    )
+                )
+            tools_list.append(genai_types.Tool(function_declarations=decls))
+
+        config_kwargs = {}
+        if system:
+            config_kwargs["system_instruction"] = system
+        if tools_list:
+            config_kwargs["tools"] = tools_list
+
+        config = genai_types.GenerateContentConfig(**config_kwargs)
+
+        messages: list[genai_types.Content] = [
+            genai_types.Content(
+                role="user",
+                parts=[genai_types.Part(text=user_message)]
+            )
+        ]
 
         while True:
-            response = await self._llm.aio.models.generate_content(
-                model=self.config.gemini_model,
-                contents=contents,
+            response = await self._client.aio.models.generate_content(
+                model=model_name,
+                contents=messages,
                 config=config,
             )
 
-            # Return final response text if no tools need to be called
+            if not response.candidates:
+                return ""
+            candidate = response.candidates[0]
+            model_content = candidate.content
+            if not model_content:
+                return ""
+
+            # Append the model's content (preserving thought_signature) directly to messages history
+            messages.append(model_content)
+
             if not response.function_calls:
                 return response.text or ""
 
-            # Keep model thoughts/calls in turn context
-            if response.candidates and response.candidates[0].content:
-                contents.append(response.candidates[0].content)
-
             # Execute tool calls
-            function_responses = []
-            for call in response.function_calls:
-                print(f"[agent] calling tool: {call.name}({call.args})")
-                args = dict(call.args) if call.args else {}
-                result = await call_tool_with_progress(self, call.name, args)
+            for tool_call in response.function_calls:
+                name = tool_call.name
+                args = tool_call.args or {}
+                print(f"[agent] calling tool: {name}({json.dumps(args)})")
+                
+                result = await call_tool_with_progress(self, name, args)
 
-                function_responses.append(
-                    gtypes.Part.from_function_response(
-                        name=call.name,
-                        response={
-                            "content": tool_result_to_text(result),
-                            "is_error": result.isError or False,
-                        },
+                messages.append(
+                    genai_types.Content(
+                        role="tool",
+                        parts=[
+                            genai_types.Part(
+                                function_response=genai_types.FunctionResponse(
+                                    name=name,
+                                    response={"result": tool_result_to_text(result)}
+                                )
+                            )
+                        ]
                     )
                 )
-
-            # Feed tool results back to Gemini
-            contents.append(gtypes.Content(role="user", parts=function_responses))
