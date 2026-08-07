@@ -1,1 +1,9 @@
 google-genai>=2.16.0
+python-dotenv
+chromadb
+sentence-transformers
+rank-bm25
+numpy
+scikit-learn
+pypdf
+tqdm
