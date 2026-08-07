@@ -3,7 +3,7 @@ import os
 from google import genai
 from google.genai import types
 
-from .retrieve import retriever
+from .retriever import retriever
 from .prompts import SYSTEM_PROMPT
 
 

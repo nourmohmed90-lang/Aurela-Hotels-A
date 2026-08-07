@@ -1,8 +1,8 @@
 """
 agent/demo.py
 -------------------------
-A fixed sequence of actions matching the Aurelia Hotel Recovery Server tools,
-resources, database records, and prompts.
+Demonstration suite for Aurelia Hotel Recovery Server tools, resources,
+prompts, memory tracking, and RAG knowledge retrieval strategies.
 """
 
 from __future__ import annotations
@@ -42,8 +42,13 @@ async def run(auto: bool) -> None:
         _section("2) BASELINE TOOL SET")
         print("Available Tools:", sorted(t.name for t in agent.tools))
 
-        # 3. Progress tracking: search_all_branches
-        _section("3) PROGRESS TRACKING: search_all_branches")
+        # 3. Vector Database & RAG Retrieval Check
+        _section("3) RAG SUBSYSTEM: Hybrid Retrieval Test")
+        rag_context = agent.search_knowledge_base("compensation policy for maintenance issues")
+        print("Retrieved Knowledge Context:\n", rag_context or "No context found.")
+
+        # 4. Progress tracking: search_all_branches
+        _section("4) PROGRESS TRACKING: search_all_branches")
         result = await call_tool_with_progress(
             agent,
             "search_all_branches",
@@ -51,22 +56,21 @@ async def run(auto: bool) -> None:
         )
         print(result.content[0].text)
 
-        # 4. Defensive design: approve_compensation validation failure
-        _section("4) DEFENSIVE DESIGN: Attempt compensation approval with invalid amount")
-        # This should fail because the amount exceeds the allowed limit for the request
+        # 5. Defensive design: approve_compensation validation failure
+        _section("5) DEFENSIVE DESIGN: Invalid Compensation Approval")
         denied = await call_tool_with_progress(
             agent,
             "approve_compensation",
             {
                 "request_id": 4,
-                "approved_by": 1,  # Ali Hassan (Manager)
+                "approved_by": 1,
                 "amount": 5000.0,
             },
         )
         print("Defensive Guard Output:", denied.content[0].text)
 
-        # 5. Role elevation & Notifications
-        _section("5) NOTIFICATIONS: promote_to_manager")
+        # 6. Role elevation & Notifications
+        _section("6) NOTIFICATIONS: promote_to_manager")
         result = await call_tool_with_progress(
             agent,
             "promote_to_manager",
@@ -75,22 +79,21 @@ async def run(auto: bool) -> None:
         print("Promotion Output:", result.content[0].text)
         await agent.wait_for_pending_notifications()
 
-        # 6. Action after elevation: Valid Compensation Approval
-        _section("6) SUCCESSFUL MANAGER ACTION: approve_compensation")
-        # after role elevation, the manager can approve a valid compensation request
+        # 7. Action after elevation: Valid Compensation Approval
+        _section("7) SUCCESSFUL MANAGER ACTION: approve_compensation")
         approved = await call_tool_with_progress(
             agent,
             "approve_compensation",
             {
                 "request_id": 4,
-                "approved_by": 1,  # Manager ID
+                "approved_by": 1,
                 "amount": 3000.0,
             },
         )
         print("Approval Result:", approved.content[0].text)
 
-        # 7. LLM Reasoning / Turn Check
-        _section("7) TESTING LLM INTELLIGENCE (RUN_TURN)")
+        # 8. LLM Reasoning / Turn Check with RAG context
+        _section("8) TESTING LLM INTELLIGENCE (RUN_TURN)")
         if agent._openai_client:
             print("Sending query to Gemini...")
             reply = await agent.run_turn("What compensation policies apply for room maintenance issues?")
@@ -98,13 +101,13 @@ async def run(auto: bool) -> None:
         else:
             print("Sampling skipped: No LLM API key configured.")
 
-        # 8. Resources Read Check
-        _section("8) RESOURCES: guest compensation policy")
+        # 9. Resources Read Check
+        _section("9) RESOURCES: guest compensation policy")
         policy_text = await agent.read_resource_text("policy://guest-compensation")
         print(policy_text)
 
-        # 9. Prompts Execution Check
-        _section("9) PROMPTS: draft_guest_apology")
+        # 10. Prompts Execution Check
+        _section("10) PROMPTS: draft_guest_apology")
         messages = await agent.get_prompt_messages(
             "draft_guest_apology",
             {
