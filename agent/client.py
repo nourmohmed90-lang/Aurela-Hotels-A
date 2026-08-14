@@ -47,6 +47,28 @@ except ImportError:
     )
 
 
+# ---- Query Decomposition Structures ----------------------------------------
+DECOMPOSE_PROMPT = """\
+Break the following question into 2-4 simpler sub-questions that, together,
+fully answer it. If the question is already simple, just return it as-is
+as a single sub-question.
+
+Question: {query}
+
+Return ONLY a numbered list, one sub-question per line. Example:
+1. ...
+2. ...
+"""
+
+from dataclasses import dataclass
+
+@dataclass
+class TaggedChunk:
+    sub_question: str
+    chunk: str
+    score: float = 1.0
+
+
 class InMemoryEpisodicStore:
     def __init__(self) -> None:
         self._records: list[dict[str, Any]] = []
@@ -182,9 +204,23 @@ class AureliaAgent:
         if tasks:
             await asyncio.gather(*tasks)
 
-    # RAG Direct Invocation
     def search_knowledge_base(self, query: str, k: int = 3, source: str | None = None) -> str:
         return hybrid_retriever.retrieve_context(query=query, k=k, source=source)
+
+    # MAKE SURE THIS METHOD IS INDENTED INSIDE AureliaAgent
+    def decompose_and_search(self, query: str, top_k: int = 3) -> list[TaggedChunk]:
+        """
+        Decomposes compound queries into sub-questions, executes existing 
+        search_knowledge_base for each sub-question, and returns tagged results.
+        """
+        sub_questions = decompose_query(query, self._client, self._model_name())
+
+        results: list[TaggedChunk] = []
+        for sub_q in sub_questions:
+            context = self.search_knowledge_base(query=sub_q, k=top_k)
+            results.append(TaggedChunk(sub_question=sub_q, chunk=context, score=1.0))
+
+        return results
 
     def ask_agentic_rag(self, question: str, k: int = 3) -> dict[str, Any]:
         if not self.agentic_rag:
@@ -195,7 +231,26 @@ class AureliaAgent:
         if not self.self_rag:
             raise RuntimeError("GEMINI_API_KEY is required to run SelfRAG.")
         return self.self_rag.ask(question=question, k=k)
+    
+    def combine_search(self, query: str, search_tool, llm, top_k: int = 3) -> list[TaggedChunk]:
+        """
+        The new tool: decompose the query, run your EXISTING search tool once
+        per sub-question, and return everything tagged so the model can see
+        which piece of the original question each chunk is answering.
 
+        `search_tool` is your existing search_knowledge_base function/tool.
+        It's passed in here so this file has no hard dependency on your server
+        -- swap in the real one where you wire this up as an MCP tool.
+        """
+        sub_questions = decompose_query(query, llm)
+
+        results: list[TaggedChunk] = []
+        for sub_q in sub_questions:
+            hits = search_tool(sub_q, top_k)  # same call signature as your existing tool
+            for chunk, score in hits:
+                results.append(TaggedChunk(sub_question=sub_q, chunk=chunk, score=score))
+
+        return results
     # Resource & Prompt Helpers
     async def read_resource_text(self, uri: str) -> str:
         assert self.session is not None
@@ -407,3 +462,34 @@ class AureliaAgent:
         await self._maybe_consolidate()
 
         return final_text
+
+
+def decompose_query(query: str, client: genai.Client, model_name: str) -> list[str]:
+    """Turn one (possibly compound) query into a list of sub-questions using Gemini."""
+    if client is None:
+        return [query]
+
+    prompt = DECOMPOSE_PROMPT.format(query=query)
+    try:
+        response = client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+        )
+        raw = response.text or ""
+    except Exception as exc:
+        print(f"[decompose] LLM call failed, falling back to original query: {exc}")
+        return [query]
+
+    sub_questions = []
+    for line in raw.strip().splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        # strip leading "1.", "2)", "- " etc.
+        for sep in [". ", ") ", "- "]:
+            if sep in line[:4]:
+                line = line.split(sep, 1)[1]
+                break
+        sub_questions.append(line.strip())
+
+    return sub_questions or [query]

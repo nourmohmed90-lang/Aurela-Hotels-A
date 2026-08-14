@@ -20,3 +20,25 @@ async def refresh_catalog(agent) -> None:
                 print(f"[catalog] tools no longer available: {sorted(removed)}")
         else:
             print(f"[catalog] {len(agent.tools)} tool(s): {sorted(new_names)}")
+
+from mcp import types as mcp_types
+
+mcp_types.Tool(
+    name="decompose_and_search",
+    description="Decomposes compound questions into sub-questions and searches the knowledge base for each part.",
+    inputSchema={
+        "type": "object",
+        "properties": {
+            "query": {
+                "type": "string",
+                "description": "The complex or multi-part user question to search."
+            },
+            "top_k": {
+                "type": "integer",
+                "description": "Number of chunks to return per sub-question.",
+                "default": 3
+            }
+        },
+        "required": ["query"]
+    }
+)            

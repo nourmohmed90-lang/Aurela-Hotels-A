@@ -9,12 +9,55 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from agent.client import AureliaAgent
+
 from agent.config import load_config
 from agent.helpers import call_tool_with_progress
 from dotenv import load_dotenv
 
+import os
 load_dotenv(override=True)
+
+
+from agent.client import AureliaAgent
+from agent.config import AgentConfig
+
+async def run_decomposition_demo():
+    # Instantiate config without needing stdio server
+    config = AgentConfig(
+        transport_mode="stdio",
+        stdio_command="python",
+        stdio_args=["-m", "agent.mcp_server"],  # Change 'server' to whatever your actual file is named
+        http_url="",
+        http_headers={},
+        gemini_api_key=os.getenv("GEMINI_API_KEY", "")
+    )
+    
+    # Initialize agent directly (skips the __aenter__ MCP handshake)
+    agent = AureliaAgent(config)
+    
+    compound_query = "What is the check-in time for guests, and what compensation is offered if a room is overbooked?"
+    
+    print("=" * 70)
+    print(f"COMPOUND DEMO QUERY:\n\"{compound_query}\"")
+    print("=" * 70)
+
+    # 1. Normal Search
+    print("\n--- 1. NORMAL SEARCH (search_knowledge_base) ---")
+    standard_result = agent.search_knowledge_base(query=compound_query, k=3)
+    print("Retrieved Context:\n", standard_result)
+
+    print("\n" + "=" * 70 + "\n")
+
+    # 2. Decompose and Search
+    print("--- 2. DECOMPOSE & SEARCH (decompose_and_search) ---")
+    tagged_results = agent.decompose_and_search(query=compound_query, top_k=2)
+    
+    for idx, item in enumerate(tagged_results, 1):
+        print(f"\n[Sub-Question {idx}]: {item.sub_question}")
+        print(f"[Tagged Chunk]:\n{item.chunk}")
+        print("-" * 40)
+if __name__ == "__main__":
+    asyncio.run(run_decomposition_demo())
 
 
 def _section(title: str) -> None:
@@ -133,4 +176,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(run_decomposition_demo())  
