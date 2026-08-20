@@ -84,3 +84,15 @@ CREATE TABLE Compensations (
     FOREIGN KEY (request_id) REFERENCES Recovery_Requests(request_id),
     FOREIGN KEY (approved_by) REFERENCES Staff(staff_id)
 );
+
+CREATE TABLE Tickets (
+    ticket_id VARCHAR(36) PRIMARY KEY,
+    thread_id VARCHAR(36) NOT NULL,
+    graph_name VARCHAR(100) NOT NULL,
+    node_name VARCHAR(100),
+    status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'investigating', 'resolved')),
+    error_message TEXT,
+    created_at TIMESTAMP NOT NULL,
+    updated_at TIMESTAMP NOT NULL,
+    resolved_at TIMESTAMP
+);
