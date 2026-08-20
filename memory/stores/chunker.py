@@ -65,13 +65,28 @@ def split_document(path: Path) -> List[Dict]:
     return documents
 
 
-def load_documents(folder: Path) -> List[Dict]:
+def load_documents(folder: Path, on_error: str = "skip") -> List[Dict]:
+    """Load and chunk every supported document in `folder`.
+
+    A single malformed file (corrupt PDF, bad encoding, etc.) must not take
+    down retrieval for every other document in the corpus. By default,
+    per-file failures are caught and skipped so the rest of the corpus still
+    builds; set on_error="raise" to get the old crash-on-first-bad-file
+    behavior (useful for validating one file at upload time, before it's
+    allowed to join the shared corpus).
+    """
     documents = []
     if not folder.exists():
         return documents
 
-    for file in folder.iterdir():
-        if file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS:
+    for file in sorted(folder.iterdir()):
+        if not (file.is_file() and file.suffix.lower() in SUPPORTED_EXTENSIONS):
+            continue
+        try:
             documents.extend(split_document(file))
+        except Exception as e:
+            if on_error == "raise":
+                raise
+            print(f"[chunker] Skipping '{file.name}': {type(e).__name__}: {e}")
 
     return documents
