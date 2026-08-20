@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Aurelia Hotels A — Admin Control Platform</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; }
+        h1, h2 { color: #1e293b; }
+        .container { max-width: 1100px; margin: 0 auto; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; }
+        th { background: #f8fafc; color: #64748b; }
+        button { padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
+        .btn-green { background: #10b981; color: white; }
+        .btn-red { background: #ef4444; color: white; }
+        .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
+        .bg-warning { background: #fef3c7; color: #d97706; }
+        .bg-danger { background: #fee2e2; color: #dc2626; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Aurelia Hotels A — Admin Control Platform</h1>
+
+        <!-- Section 1: MCP Tool Management -->
+        <div class="card">
+            <h2>MCP Tools Management (Runtime Toggle)</h2>
+            <table id="tools-table">
+                <thead>
+                    <tr><th>Tool Name</th><th>Status</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Section 2: HITL & Failure Ticket Queue -->
+        <div class="card">
+            <h2>Pending Tasks & Failure Tickets</h2>
+            <table id="tasks-table">
+                <thead>
+                    <tr><th>Thread ID</th><th>Booking ID</th><th>Status</th><th>Details</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Section 3: RAG Document Management -->
+        <div class="card">
+            <h2>RAG Document Management</h2>
+            <input type="file" id="doc-upload" />
+            <button onclick="uploadDoc()" class="btn-green">Upload Document</button>
+            <table id="docs-table" style="margin-top: 15px;">
+                <thead>
+                    <tr><th>Filename</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </div>
+
+    <script>
+        async function loadTools() {
+            const res = await fetch('/api/admin/tools');
+            const tools = await res.json();
+            const tbody = document.querySelector('#tools-table tbody');
+            tbody.innerHTML = '';
+            for (const [tool, enabled] of Object.entries(tools)) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${tool}</strong></td>
+                        <td>${enabled ? '<span style="color:green">Active</span>' : '<span style="color:red">Disabled</span>'}</td>
+                        <td>
+                            <button class="${enabled ? 'btn-red' : 'btn-green'}" onclick="toggleTool('${tool}', ${!enabled})">
+                                ${enabled ? 'Disable' : 'Enable'}
+                            </button>
+                        </td>
+                    </tr>`;
+            }
+        }
+
+        async function toggleTool(tool, enabled) {
+            await fetch('/api/admin/tools/toggle', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({tool_name: tool, enabled})
+            });
+            loadTools();
+        }
+
+        async function loadTasks() {
+            const res = await fetch('/api/admin/pending-tasks');
+            const tasks = await res.json();
+            const tbody = document.querySelector('#tasks-table tbody');
+            tbody.innerHTML = '';
+            tasks.forEach(t => {
+                const isHitl = t.status === 'PAUSED_HITL';
+                tbody.innerHTML += `
+                    <tr>
+                        <td><code>${t.thread_id.substring(0,8)}...</code></td>
+                        <td>${t.booking_id}</td>
+                        <td><span class="badge ${isHitl ? 'bg-warning' : 'bg-danger'}">${t.status}</span></td>
+                        <td>${isHitl ? '$' + t.total_price + ' approval required' : t.error_message}</td>
+                        <td>
+                            <button class="btn-green" onclick="resolveTask('${t.thread_id}', '${isHitl ? 'approve' : 'resolve'}')">
+                                ${isHitl ? 'Approve & Resume' : 'Resolve Ticket'}
+                            </button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        async function resolveTask(threadId, action) {
+            await fetch('/api/admin/tasks/action', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({thread_id: threadId, action: action})
+            });
+            loadTasks();
+        }
+
+        async function loadDocs() {
+            const res = await fetch('/api/admin/documents');
+            const data = await res.json();
+            const tbody = document.querySelector('#docs-table tbody');
+            tbody.innerHTML = '';
+            data.documents.forEach(doc => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td>${doc}</td>
+                        <td><button class="btn-red" onclick="deleteDoc('${doc}')">Delete</button></td>
+                    </tr>`;
+            });
+        }
+
+        async function uploadDoc() {
+            const input = document.getElementById('doc-upload');
+            if (!input.files[0]) return;
+            const formData = new FormData();
+            formData.append('file', input.files[0]);
+            await fetch('/api/admin/documents/upload', { method: 'POST', body: formData });
+            input.value = '';
+            loadDocs();
+        }
+
+        async function deleteDoc(filename) {
+            await fetch(`/api/admin/documents/${filename}`, { method: 'DELETE' });
+            loadDocs();
+        }
+
+        // Initialize dashboard
+        loadTools();
+        loadTasks();
+        loadDocs();
+    </script>
+</body>
+</html>
