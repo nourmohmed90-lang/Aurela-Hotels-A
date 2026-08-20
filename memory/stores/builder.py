@@ -10,6 +10,12 @@ from memory.stores.config import DOCUMENTS_DIR
 
 
 def build_vector_database(reset: bool = True) -> Dict[str, Any]:
+    """Rebuild the vector + BM25 indexes from every supported file currently
+    in DOCUMENTS_DIR. This is the single source of truth for what the RAG
+    agent can retrieve — call it any time DOCUMENTS_DIR changes (admin
+    upload/delete) so the next query reflects the change, not just the
+    filesystem.
+    """
     start = time.time()
 
     print("=" * 60)
@@ -66,10 +72,20 @@ def build_vector_database(reset: bool = True) -> Dict[str, Any]:
 
 
 def validate_document(path: Path) -> None:
+    """Parse+chunk a single file with on_error='raise' so a bad upload fails
+    loudly and immediately, before it's allowed to join the shared corpus
+    and silently degrade the rest of it. Raises on failure; returns None on
+    success. Caller is responsible for removing the file if this raises.
+    """
     split_document(path)  # raises on malformed/corrupt content
 
 
 def sync_documents(reset: bool = True) -> Dict[str, Any]:
+    """Public entry point for the admin platform: re-derive the vector +
+    BM25 indexes from whatever is currently on disk in DOCUMENTS_DIR. Call
+    this after every admin upload or delete so the RAG agent's next query
+    reflects the change.
+    """
     return build_vector_database(reset=reset)
 
 
