@@ -448,6 +448,74 @@ def recommend_compensation(issue: str):
         )
     }
 
+@mcp.tool()
+def create_recovery_request(reservation_id: int, issue_type: str, priority: str, created_by: int):
+    """
+    Log a new guest recovery/complaint request against a reservation.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    row = cursor.execute("SELECT MAX(request_id) FROM Recovery_Requests").fetchone()
+    next_id = (row[0] or 0) + 1
+
+    cursor.execute(
+        """
+        INSERT INTO Recovery_Requests (request_id, reservation_id, issue_type, priority, request_status, created_by, created_at)
+        VALUES (?, ?, ?, ?, 'Pending', ?, datetime('now'))
+        """,
+        (next_id, reservation_id, issue_type, priority, created_by),
+    )
+    conn.commit()
+    conn.close()
+
+    return {"success": True, "request_id": next_id}
+
+
+@mcp.tool()
+def record_compensation(request_id: int, compensation_type: str, amount: float, approval_status: str, approved_by: int = None):
+    """
+    Record a compensation decision against a recovery request. Rejects
+    invalid request IDs, negative amounts, and already-approved requests,
+    per the company's compensation policy (documents/compensation_policy.md).
+    """
+    if amount < 0:
+        return {"error": "Compensation amount cannot be negative."}
+
+    conn = get_db()
+    cursor = conn.cursor()
+
+    existing_request = cursor.execute(
+        "SELECT request_id FROM Recovery_Requests WHERE request_id = ?", (request_id,)
+    ).fetchone()
+    if not existing_request:
+        conn.close()
+        return {"error": f"Recovery request {request_id} not found."}
+
+    already_approved = cursor.execute(
+        "SELECT compensation_id FROM Compensations WHERE request_id = ? AND approval_status = 'Approved'",
+        (request_id,),
+    ).fetchone()
+    if already_approved:
+        conn.close()
+        return {"error": f"Recovery request {request_id} already has an approved compensation."}
+
+    row = cursor.execute("SELECT MAX(compensation_id) FROM Compensations").fetchone()
+    next_id = (row[0] or 0) + 1
+    approved_at = "datetime('now')" if approval_status == "Approved" else None
+
+    cursor.execute(
+        f"""
+        INSERT INTO Compensations (compensation_id, request_id, compensation_type, amount, approval_status, approved_by, approved_at)
+        VALUES (?, ?, ?, ?, ?, ?, {approved_at if approved_at else 'NULL'})
+        """,
+        (next_id, request_id, compensation_type, amount, approval_status, approved_by),
+    )
+    conn.commit()
+    conn.close()
+
+    return {"success": True, "compensation_id": next_id, "approval_status": approval_status}
+
+
 class ManagerApproval(BaseModel):
     manager_note: str
 
