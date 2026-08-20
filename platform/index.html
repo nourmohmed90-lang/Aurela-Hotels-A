@@ -34,12 +34,48 @@
             </table>
         </div>
 
-        <!-- Section 2: HITL & Failure Ticket Queue -->
+        <!-- Section 2A: HITL Approval Queue -->
         <div class="card">
-            <h2>Pending Tasks & Failure Tickets</h2>
-            <table id="tasks-table">
+            <h2>Pending HITL Approvals</h2>
+            <p style="color:#64748b; font-size:0.9em;">Expected pauses awaiting a manager's decision before the run can continue.</p>
+            <table id="hitl-table">
                 <thead>
-                    <tr><th>Thread ID</th><th>Booking ID</th><th>Status</th><th>Details</th><th>Action</th></tr>
+                    <tr><th>Thread ID</th><th>Booking ID</th><th>Total Price</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Section 2B: Failure Ticket Queue -->
+        <div class="card">
+            <h2>Failure Tickets</h2>
+            <p style="color:#64748b; font-size:0.9em;">Unplanned failures a node hit and could not recover from on its own.</p>
+            <table id="tickets-table">
+                <thead>
+                    <tr><th>Ticket ID</th><th>Thread ID</th><th>Node</th><th>Status</th><th>Error</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Section 2D: Complaint Resolution Graph -->
+        <div class="card">
+            <h2>Complaint Resolution — Pending Manager Approvals</h2>
+            <p style="color:#64748b; font-size:0.9em;">Offers at or above the $100 policy threshold, or a negotiation that exhausted its rounds.</p>
+            <table id="complaint-hitl-table">
+                <thead>
+                    <tr><th>Thread ID</th><th>Reason</th><th>Type</th><th>Amount</th><th>Round</th><th>Action</th></tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Complaint Resolution — Awaiting Guest Reply</h2>
+            <p style="color:#64748b; font-size:0.9em;">Offer sent; waiting on the guest's decision (record it here once it arrives, via whatever real channel).</p>
+            <table id="complaint-guest-table">
+                <thead>
+                    <tr><th>Thread ID</th><th>Type</th><th>Amount</th><th>Round</th><th>Guest Decision</th></tr>
                 </thead>
                 <tbody></tbody>
             </table>
@@ -88,35 +124,131 @@
             loadTools();
         }
 
-        async function loadTasks() {
-            const res = await fetch('/api/admin/pending-tasks');
+        async function loadHitlTasks() {
+            const res = await fetch('/api/admin/hitl-tasks');
             const tasks = await res.json();
-            const tbody = document.querySelector('#tasks-table tbody');
+            const tbody = document.querySelector('#hitl-table tbody');
             tbody.innerHTML = '';
             tasks.forEach(t => {
-                const isHitl = t.status === 'PAUSED_HITL';
                 tbody.innerHTML += `
                     <tr>
                         <td><code>${t.thread_id.substring(0,8)}...</code></td>
                         <td>${t.booking_id}</td>
-                        <td><span class="badge ${isHitl ? 'bg-warning' : 'bg-danger'}">${t.status}</span></td>
-                        <td>${isHitl ? '$' + t.total_price + ' approval required' : t.error_message}</td>
+                        <td>$${t.total_price}</td>
+                        <td><button class="btn-green" onclick="approveHitl('${t.thread_id}')">Approve & Resume</button></td>
+                    </tr>`;
+            });
+        }
+
+        async function approveHitl(threadId) {
+            await fetch('/api/admin/hitl-tasks/approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({thread_id: threadId})
+            });
+            loadHitlTasks();
+        }
+
+        async function loadTickets() {
+            const res = await fetch('/api/admin/tickets');
+            const tickets = await res.json();
+            const tbody = document.querySelector('#tickets-table tbody');
+            tbody.innerHTML = '';
+            tickets.forEach(t => {
+                const badgeClass = t.status === 'resolved' ? 'bg-warning' : 'bg-danger';
+                tbody.innerHTML += `
+                    <tr>
+                        <td><code>${t.ticket_id.substring(0,8)}...</code></td>
+                        <td><code>${t.thread_id.substring(0,8)}...</code></td>
+                        <td>${t.node_name || '-'}</td>
+                        <td><span class="badge ${badgeClass}">${t.status}</span></td>
+                        <td>${t.error_message || ''}</td>
                         <td>
-                            <button class="btn-green" onclick="resolveTask('${t.thread_id}', '${isHitl ? 'approve' : 'resolve'}')">
-                                ${isHitl ? 'Approve & Resume' : 'Resolve Ticket'}
-                            </button>
+                            ${t.status !== 'resolved' ? `
+                                <button onclick="setTicketStatus('${t.ticket_id}', 'investigating')">Investigating</button>
+                                <button class="btn-green" onclick="resolveTicket('${t.ticket_id}')">Resolve & Resume</button>
+                            ` : ''}
                         </td>
                     </tr>`;
             });
         }
 
-        async function resolveTask(threadId, action) {
-            await fetch('/api/admin/tasks/action', {
+        async function setTicketStatus(ticketId, status) {
+            await fetch(`/api/admin/tickets/${ticketId}/status`, {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({thread_id: threadId, action: action})
+                body: JSON.stringify({status})
             });
-            loadTasks();
+            loadTickets();
+        }
+
+        async function resolveTicket(ticketId) {
+            await fetch(`/api/admin/tickets/${ticketId}/resolve`, { method: 'POST' });
+            loadTickets();
+        }
+
+        async function loadComplaintHitlTasks() {
+            const res = await fetch('/api/admin/complaints/hitl-tasks');
+            const tasks = await res.json();
+            const tbody = document.querySelector('#complaint-hitl-table tbody');
+            tbody.innerHTML = '';
+            tasks.forEach(t => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><code>${t.thread_id.substring(0,16)}...</code></td>
+                        <td>${t.hitl_reason === 'rounds_exhausted' ? 'Negotiation exhausted' : 'Amount threshold'}</td>
+                        <td>${t.proposed_type}</td>
+                        <td>$${t.proposed_amount}</td>
+                        <td>${t.round_number} / ${t.max_rounds}</td>
+                        <td>
+                            <button class="btn-green" onclick="approveComplaintHitl('${t.thread_id}', true)">Approve</button>
+                            <button class="btn-red" onclick="approveComplaintHitl('${t.thread_id}', false)">Decline</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        async function approveComplaintHitl(threadId, approved) {
+            await fetch('/api/admin/complaints/hitl-tasks/approve', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({thread_id: threadId, approved})
+            });
+            loadComplaintHitlTasks();
+            loadComplaintGuestQueue();
+            loadTickets();
+        }
+
+        async function loadComplaintGuestQueue() {
+            const res = await fetch('/api/admin/complaints/awaiting-guest');
+            const tasks = await res.json();
+            const tbody = document.querySelector('#complaint-guest-table tbody');
+            tbody.innerHTML = '';
+            tasks.forEach(t => {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><code>${t.thread_id.substring(0,16)}...</code></td>
+                        <td>${t.proposed_type}</td>
+                        <td>$${t.proposed_amount}</td>
+                        <td>${t.round_number} / ${t.max_rounds}</td>
+                        <td>
+                            <button class="btn-green" onclick="recordGuestResponse('${t.thread_id}', 'accept')">Accept</button>
+                            <button onclick="recordGuestResponse('${t.thread_id}', 'counter')">Counter</button>
+                            <button class="btn-red" onclick="recordGuestResponse('${t.thread_id}', 'reject')">Reject</button>
+                        </td>
+                    </tr>`;
+            });
+        }
+
+        async function recordGuestResponse(threadId, decision) {
+            await fetch('/api/admin/complaints/guest-response', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({thread_id: threadId, guest_decision: decision})
+            });
+            loadComplaintGuestQueue();
+            loadComplaintHitlTasks();
+            loadTickets();
         }
 
         async function loadDocs() {
@@ -150,7 +282,10 @@
 
         // Initialize dashboard
         loadTools();
-        loadTasks();
+        loadHitlTasks();
+        loadTickets();
+        loadComplaintHitlTasks();
+        loadComplaintGuestQueue();
         loadDocs();
     </script>
 </body>
