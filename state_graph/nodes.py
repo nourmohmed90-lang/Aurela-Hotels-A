@@ -1,6 +1,7 @@
 import sys
 import os
 from typing import Dict, Any
+from langgraph.types import interrupt
 from langchain_core.runnables import RunnableConfig
 from .schemas import VIPBookingState
 from .tickets import create_ticket
@@ -102,3 +103,59 @@ def create_ticket_node(state: VIPBookingState, config: RunnableConfig) -> Dict[s
     )
 
     return {"status": "FAILED_TICKET", "ticket_id": ticket_id}
+
+
+# ---------------------------------------------------------------------------
+# Shared HITL Infrastructure (reusable by Graph 1, Graph 2, and Graph 3)
+# ---------------------------------------------------------------------------
+
+def shared_hitl_approval_node(state: dict) -> dict:
+    """Generic interrupt()-based HITL node reusable by any state graph.
+
+    Accepts a plain dict so it is not tied to any single TypedDict schema —
+    Graph 1, Graph 2, and Graph 3 can all route into this node without a
+    type mismatch. The caller is responsible for storing the result keys that
+    matter to their own schema (is_approved / human_approved / status).
+
+    Usage pattern (any graph):
+        builder.add_node("hitl_approval", shared_hitl_approval_node)
+        # The interrupt() payload is built from whatever is in state;
+        # only recognised keys are forwarded so unknown keys are silently dropped.
+
+    The interrupt() value is whatever the platform passes via
+    Command(resume={"approved": True/False, "feedback": "..."}):
+        - "approved" → bool decision
+        - "feedback" → optional free-text from the manager
+
+    Returns keys common across all three graph schemas:
+        is_approved    (Graph 1 / Graph 2 HITL key)
+        human_approved (Graph 3 HITL key)
+        status         ("APPROVED" or "DECLINED")
+        hitl_feedback  (optional manager comment, if provided)
+    """
+    # Build the interrupt payload from the state keys that are meaningful to
+    # a manager reviewing an approval request — drop None values to keep the
+    # payload readable on the platform side.
+    _FORWARD_KEYS = {
+        "kind", "severity_level", "severity", "issue_description", "room_number",
+        "guest_id", "booking_id", "reservation_id", "issue_type",
+        "proposed_type", "proposed_amount", "total_price", "itinerary_items",
+        "resolution_plan", "policy_analysis", "policy_context",
+        "round_number", "max_rounds", "hitl_reason", "request_id",
+        "estimated_cost",
+    }
+    payload = {k: v for k, v in state.items() if k in _FORWARD_KEYS and v is not None}
+    if "kind" not in payload:
+        payload["kind"] = "generic_hitl_approval"
+
+    decision = interrupt(payload)
+
+    approved = bool(decision.get("approved"))
+    feedback = decision.get("feedback") or ""
+
+    return {
+        "is_approved": approved,          # Graph 1 + Graph 2 key
+        "human_approved": approved,       # Graph 3 key
+        "status": "APPROVED" if approved else "DECLINED",
+        "hitl_feedback": feedback,
+    }

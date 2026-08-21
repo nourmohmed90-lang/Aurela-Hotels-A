@@ -34,7 +34,7 @@ from typing import Any, Dict, List, Optional
 
 DB_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "database", "hotel.db"))
 
-VALID_STATUSES = ("open", "investigating", "resolved")
+VALID_STATUSES = ("open", "investigating", "resolved", "PENDING_APPROVAL", "FAILED")
 
 
 def _get_db() -> sqlite3.Connection:
@@ -47,6 +47,11 @@ def ensure_tickets_table() -> None:
     """Idempotently create the Tickets table if it doesn't exist yet. Safe
     to call on every import -- lets this module work even if someone hasn't
     re-run schema.sql against an existing hotel.db.
+
+    The table created here uses an extended CHECK constraint that includes
+    'PENDING_APPROVAL' and 'FAILED' for the incident-escalation workflow
+    (Graph 3). Existing DBs with the old constraint are unaffected by this
+    call (CREATE TABLE IF NOT EXISTS is a no-op when the table already exists).
     """
     conn = _get_db()
     conn.execute(
@@ -56,7 +61,8 @@ def ensure_tickets_table() -> None:
             thread_id VARCHAR(36) NOT NULL,
             graph_name VARCHAR(100) NOT NULL,
             node_name VARCHAR(100),
-            status VARCHAR(20) NOT NULL DEFAULT 'open' CHECK (status IN ('open', 'investigating', 'resolved')),
+            status VARCHAR(20) NOT NULL DEFAULT 'open'
+                CHECK (status IN ('open', 'investigating', 'resolved', 'PENDING_APPROVAL', 'FAILED')),
             error_message TEXT,
             created_at TIMESTAMP NOT NULL,
             updated_at TIMESTAMP NOT NULL,
@@ -146,3 +152,133 @@ def update_ticket_status(ticket_id: str, status: str) -> Dict[str, Any]:
     conn.commit()
     conn.close()
     return get_ticket(ticket_id)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2: Resilient Ticket & Recovery Engine
+# ---------------------------------------------------------------------------
+
+def create_escalation_ticket(
+    thread_id: str,
+    state_data: Dict[str, Any],
+    error_reason: str,
+) -> str:
+    """Creates a ticket for an incident/escalation event that requires human
+    attention. Unlike create_ticket() (which is always 'open' / an unplanned
+    failure), this function sets status to 'PENDING_APPROVAL' when the
+    graph hit a planned HITL gate that the ticket system is tracking
+    externally, or 'FAILED' for genuine unplanned failures.
+
+    The distinction:
+    - 'PENDING_APPROVAL': the graph hit a high-severity condition, paused
+      via interrupt(), AND someone wants a Tickets row for external tracking
+      (e.g. ops dashboards outside the platform). The underlying graph run
+      is checkpointed and resumable via resume_graph_from_ticket().
+    - 'FAILED': the graph node raised an unhandled exception. The row is
+      opened for triage; resolving it calls resume_graph_from_ticket() which
+      re-invokes the graph from its last checkpoint.
+
+    graph_name is read from state_data["graph_name"] if present; falls back
+    to "unknown_graph". The ticket_id is stored back into state by the caller.
+    """
+    ensure_tickets_table()
+    ticket_id = str(uuid.uuid4())
+    now = datetime.now(timezone.utc).isoformat()
+    graph_name = state_data.get("graph_name", "unknown_graph")
+    node_name = state_data.get("node_name")
+
+    # Determine status: if the state signals a planned HITL gate, mark
+    # PENDING_APPROVAL; otherwise mark FAILED.
+    is_hitl = state_data.get("requires_human_approval") or state_data.get("requires_manager_approval")
+    target_status = "PENDING_APPROVAL" if is_hitl else "FAILED"
+
+    conn = _get_db()
+    try:
+        conn.execute(
+            """
+            INSERT INTO Tickets (ticket_id, thread_id, graph_name, node_name, status, error_message, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (ticket_id, thread_id, graph_name, node_name, target_status, error_reason, now, now),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        # Existing DB with old CHECK constraint — fall back gracefully to 'open'
+        # so the ticket is still created and visible in the admin queue.
+        conn.execute(
+            """
+            INSERT INTO Tickets (ticket_id, thread_id, graph_name, node_name, status, error_message, created_at, updated_at)
+            VALUES (?, ?, ?, ?, 'open', ?, ?, ?)
+            """,
+            (ticket_id, thread_id, graph_name, node_name, error_reason, now, now),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+    return ticket_id
+
+
+def resume_graph_from_ticket(
+    ticket_id: str,
+    approval_decision: bool,
+    feedback: str = "",
+) -> Dict[str, Any]:
+    """Reads the saved checkpoint from SQLite via the ticket's thread_id,
+    updates state with the human decision, and resumes graph execution from
+    the exact checkpointed node.
+
+    This is the canonical recovery entry point for all three graphs:
+    - Graph 1 (vip_booking_graph): re-invokes with updated state dict
+      (entry-point resume pattern, same as approve_hitl_task in app.py).
+    - Graph 2 (complaint_resolution_graph): sends Command(resume=...) to
+      continue from the interrupt() node (same as approve_complaint_hitl).
+    - Graph 3 (incident_escalation_graph): sends Command(resume=...) to
+      continue from incident_hitl_node's interrupt().
+
+    Returns {"success": bool, "resumed_state": dict, "ticket": dict}.
+    """
+    ticket = get_ticket(ticket_id)
+    if ticket is None:
+        raise KeyError(f"No ticket with id {ticket_id!r}")
+
+    thread_id = ticket["thread_id"]
+    graph_name = ticket["graph_name"]
+    config = {"configurable": {"thread_id": thread_id}}
+
+    # Lazy imports to avoid circular dependencies at module level.
+    from .graph import vip_booking_graph
+    from .graph_complaint import complaint_resolution_graph, run_complaint_graph
+    from .graph_incident import incident_escalation_graph, run_incident_graph
+
+    from langgraph.types import Command as _Command
+
+    try:
+        if graph_name == "incident_escalation_graph":
+            result, _ = run_incident_graph(
+                _Command(resume={"approved": approval_decision, "feedback": feedback}),
+                config,
+            )
+
+        elif graph_name == "complaint_resolution_graph":
+            result, _ = run_complaint_graph(
+                _Command(resume={"approved": approval_decision, "feedback": feedback}),
+                config,
+            )
+
+        else:
+            # Default: vip_booking_graph re-invoke-from-entry pattern.
+            state_obj = vip_booking_graph.get_state(config)
+            if not state_obj or not state_obj.values:
+                raise RuntimeError(f"No checkpoint found for thread {thread_id!r}")
+            current_state = dict(state_obj.values)
+            current_state["is_approved"] = approval_decision
+            current_state["status"] = "APPROVED" if approval_decision else "DECLINED"
+            current_state["error_message"] = None
+            result = vip_booking_graph.invoke(current_state, config=config)
+
+        resolved_ticket = update_ticket_status(ticket_id, "resolved")
+        return {"success": True, "resumed_state": result, "ticket": resolved_ticket}
+
+    except Exception as exc:
+        return {"success": False, "error": str(exc), "ticket": ticket}

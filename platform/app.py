@@ -16,7 +16,9 @@ sys.path.append(BASE_DIR)
 from mcp_server.server import list_tool_statuses, set_tool_status
 from state_graph.graph import vip_booking_graph
 from state_graph.graph_complaint import complaint_resolution_graph, run_complaint_graph
+from state_graph.graph_incident import incident_escalation_graph, run_incident_graph
 from state_graph import tickets as ticket_store
+from state_graph.tickets import resume_graph_from_ticket
 from memory.stores.builder import sync_documents, validate_document
 from memory.stores.config import SUPPORTED_EXTENSIONS
 from langgraph.types import Command
@@ -134,46 +136,36 @@ def set_ticket_status(ticket_id: str, req: TicketStatusRequest):
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+class ResolveTicketRequest(BaseModel):
+    approved: bool = True
+    feedback: str = ""
+
 @app.post("/api/admin/tickets/{ticket_id}/resolve")
-def resolve_ticket(ticket_id: str):
+def resolve_ticket(ticket_id: str, req: ResolveTicketRequest = None):
     """Marks a ticket resolved AND resumes the underlying run from its exact
     checkpoint via the ticket's stored thread_id -- not restarted from
-    scratch. Branches on graph_name because the two graphs use different
-    resume mechanisms: vip_booking_graph re-invokes with a modified state
-    dict from its entry point; complaint_resolution_graph uses interrupt()/
-    Command(resume=...) to continue from the exact paused node. See
-    state_graph/nodes_complaint.py for why the latter is the more correct
-    approach.
+    scratch.
+
+    Delegates to resume_graph_from_ticket() in state_graph/tickets.py which
+    branches on graph_name and handles all three graphs:
+    - incident_escalation_graph: Command(resume=...) from interrupt() node.
+    - complaint_resolution_graph: Command(resume=...) or re-invoke.
+    - vip_booking_graph: re-invoke from entry point with updated state dict.
     """
     ticket = ticket_store.get_ticket(ticket_id)
     if ticket is None:
         raise HTTPException(status_code=404, detail="Ticket not found.")
 
-    config = {"configurable": {"thread_id": ticket["thread_id"]}}
+    approved = req.approved if req else True
+    feedback = req.feedback if req else ""
 
-    if ticket["graph_name"] == "complaint_resolution_graph":
-        # The failure happened inside finalize_compensation_node, which has
-        # no interrupt() of its own -- re-running the graph from its last
-        # checkpoint re-enters that node directly (LangGraph resumes at the
-        # last incomplete step when invoked with no new input on a thread
-        # that isn't paused at an interrupt).
-        resumed_state = complaint_resolution_graph.invoke(None, config=config)
-        resolved_ticket = ticket_store.update_ticket_status(ticket_id, "resolved")
-        return {"success": True, "ticket": resolved_ticket, "resumed_status": resumed_state.get("status")}
-
-    # Default: vip_booking_graph's re-invoke-from-entry pattern
-    state_obj = vip_booking_graph.get_state(config)
-    if not state_obj or not state_obj.values:
-        raise HTTPException(status_code=404, detail="Underlying run thread not found -- cannot resume.")
-
-    current_state = dict(state_obj.values)
-    current_state["status"] = "IN_PROGRESS"
-    current_state["error_message"] = None
-
-    resumed_state = vip_booking_graph.invoke(current_state, config=config)
-    resolved_ticket = ticket_store.update_ticket_status(ticket_id, "resolved")
-
-    return {"success": True, "ticket": resolved_ticket, "resumed_status": resumed_state.get("status")}
+    result = resume_graph_from_ticket(ticket_id, approved, feedback)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=500,
+            detail=f"Resume failed: {result.get('error', 'unknown error')}"
+        )
+    return result
 
 # ==========================================
 # 2C. COMPLAINT RESOLUTION GRAPH (Graph #2 -- Person B)
@@ -268,6 +260,86 @@ def record_complaint_guest_response(req: ComplaintGuestResponseRequest):
     config = {"configurable": {"thread_id": req.thread_id}}
     result, ticket_id = run_complaint_graph(Command(resume={"guest_decision": req.guest_decision}), config)
     return {"success": True, "state": result, "ticket_id": ticket_id}
+
+# ==========================================
+# 2D. INCIDENT & MAINTENANCE ESCALATION GRAPH (Graph #3 -- Person C)
+# ==========================================
+# Uses interrupt()/Command(resume=...) — same pattern as Graph 2.
+# Thread IDs are prefixed 'incident-' to distinguish from other graphs.
+
+class StartIncidentRequest(BaseModel):
+    guest_id: str
+    room_number: str
+    issue_description: str
+
+@app.post("/api/incidents/start")
+def start_incident(req: StartIncidentRequest):
+    """Kicks off a new incident escalation run."""
+    thread_id = f"incident-{_uuid.uuid4()}"
+    config = {"configurable": {"thread_id": thread_id}}
+
+    initial_state = {
+        "thread_id": thread_id,
+        "guest_id": req.guest_id,
+        "room_number": req.room_number,
+        "issue_description": req.issue_description,
+        "severity_level": None,
+        "policy_analysis": None,
+        "requires_human_approval": False,
+        "resolution_plan": None,
+        "human_approved": None,
+        "ticket_id": None,
+        "status": "IN_PROGRESS",
+        "error_message": None,
+    }
+
+    result, ticket_id = run_incident_graph(initial_state, config)
+    return {"thread_id": thread_id, "state": result, "ticket_id": ticket_id}
+
+
+def _list_incident_threads_paused_on(node_name: str):
+    """Scans checkpoints for incident_escalation_graph threads currently
+    interrupted at `node_name`. Thread IDs are prefixed 'incident-'.
+    """
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("SELECT DISTINCT thread_id FROM checkpoints WHERE thread_id LIKE 'incident-%'")
+    thread_ids = [r[0] for r in cursor.fetchall()]
+    conn.close()
+
+    out = []
+    for tid in thread_ids:
+        config = {"configurable": {"thread_id": tid}}
+        try:
+            snap = incident_escalation_graph.get_state(config)
+            if snap and snap.next == (node_name,):
+                out.append({"thread_id": tid, **snap.values})
+        except Exception:
+            continue
+    return out
+
+
+@app.get("/api/admin/incidents/hitl-tasks")
+def get_incident_hitl_tasks():
+    """Pending manager-approval pauses in the incident escalation graph."""
+    return _list_incident_threads_paused_on("hitl_approval")
+
+
+class IncidentHitlApproveRequest(BaseModel):
+    thread_id: str
+    approved: bool
+    feedback: str = ""
+
+
+@app.post("/api/admin/incidents/hitl-tasks/approve")
+def approve_incident_hitl(req: IncidentHitlApproveRequest):
+    """Manager approves or declines a high-severity incident escalation."""
+    config = {"configurable": {"thread_id": req.thread_id}}
+    result, ticket_id = run_incident_graph(
+        Command(resume={"approved": req.approved, "feedback": req.feedback}), config
+    )
+    return {"success": True, "state": result, "ticket_id": ticket_id}
+
 
 # ==========================================
 # 3. RAG DOCUMENT MANAGEMENT
