@@ -1,13 +1,21 @@
 import time
+from pathlib import Path
+from typing import Dict, Any
 
-from memory.stores.chunker import load_documents
+from memory.stores.chunker import load_documents, split_document
 from memory.stores.embeddings import encode
 from memory.stores.vector_store import vector_store
 from memory.stores.bm25_store import bm25_store
 from memory.stores.config import DOCUMENTS_DIR
 
 
-def build_vector_database(reset: bool = True):
+def build_vector_database(reset: bool = True) -> Dict[str, Any]:
+    """Rebuild the vector + BM25 indexes from every supported file currently
+    in DOCUMENTS_DIR. This is the single source of truth for what the RAG
+    agent can retrieve — call it any time DOCUMENTS_DIR changes (admin
+    upload/delete) so the next query reflects the change, not just the
+    filesystem.
+    """
     start = time.time()
 
     print("=" * 60)
@@ -19,11 +27,19 @@ def build_vector_database(reset: bool = True):
         vector_store.reset()
 
     print("[2/6] Loading documents...")
-    documents = load_documents(DOCUMENTS_DIR)
+    documents = load_documents(DOCUMENTS_DIR)  # skips unreadable files, doesn't crash the batch
 
     if not documents:
+        # Empty corpus is valid (e.g. the admin just deleted the last doc).
+        # Both indexes must reflect that -- don't leave BM25 holding a stale
+        # in-memory index from before the deletion.
         print(f"No documents found in target path: {DOCUMENTS_DIR}")
-        return
+        bm25_store.build([])
+        bm25_store.save()
+        elapsed = round(time.time() - start, 2)
+        print(f"Knowledge base is now empty. Time Taken: {elapsed}s")
+        return {"indexed_chunks": 0, "vector_docs": vector_store.count(),
+                "bm25_docs": bm25_store.count(), "elapsed_seconds": elapsed}
 
     print(f"Loaded {len(documents)} document chunks.")
 
@@ -50,6 +66,27 @@ def build_vector_database(reset: bool = True):
     print(f"BM25 Docs      : {bm25_store.count()}")
     print(f"Time Taken     : {elapsed}s")
     print("=" * 60)
+
+    return {"indexed_chunks": len(documents), "vector_docs": vector_store.count(),
+            "bm25_docs": bm25_store.count(), "elapsed_seconds": elapsed}
+
+
+def validate_document(path: Path) -> None:
+    """Parse+chunk a single file with on_error='raise' so a bad upload fails
+    loudly and immediately, before it's allowed to join the shared corpus
+    and silently degrade the rest of it. Raises on failure; returns None on
+    success. Caller is responsible for removing the file if this raises.
+    """
+    split_document(path)  # raises on malformed/corrupt content
+
+
+def sync_documents(reset: bool = True) -> Dict[str, Any]:
+    """Public entry point for the admin platform: re-derive the vector +
+    BM25 indexes from whatever is currently on disk in DOCUMENTS_DIR. Call
+    this after every admin upload or delete so the RAG agent's next query
+    reflects the change.
+    """
+    return build_vector_database(reset=reset)
 
 
 if __name__ == "__main__":

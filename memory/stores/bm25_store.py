@@ -70,6 +70,10 @@ class BM25Store:
     def count(self):
         return len(self.documents)
 
+    def force_reload(self):
+        self.bm25 = None
+        self.load()
+
     @staticmethod
     def tokenize(text: str):
         return text.lower().split()

@@ -1,24 +1,90 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <title>Aurelia Hotels A — Admin Control Platform</title>
     <style>
-        body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #f4f6f9; margin: 0; padding: 20px; }
-        h1, h2 { color: #1e293b; }
-        .container { max-width: 1100px; margin: 0 auto; }
-        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { text-align: left; padding: 12px; border-bottom: 1px solid #e2e8f0; }
-        th { background: #f8fafc; color: #64748b; }
-        button { padding: 6px 12px; border-radius: 4px; border: none; cursor: pointer; font-weight: bold; }
-        .btn-green { background: #10b981; color: white; }
-        .btn-red { background: #ef4444; color: white; }
-        .badge { padding: 4px 8px; border-radius: 12px; font-size: 0.8em; font-weight: bold; }
-        .bg-warning { background: #fef3c7; color: #d97706; }
-        .bg-danger { background: #fee2e2; color: #dc2626; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background: #f4f6f9;
+            margin: 0;
+            padding: 20px;
+        }
+
+        h1,
+        h2 {
+            color: #1e293b;
+        }
+
+        .container {
+            max-width: 1100px;
+            margin: 0 auto;
+        }
+
+        .card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+
+        th,
+        td {
+            text-align: left;
+            padding: 12px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+
+        th {
+            background: #f8fafc;
+            color: #64748b;
+        }
+
+        button {
+            padding: 6px 12px;
+            border-radius: 4px;
+            border: none;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .btn-green {
+            background: #10b981;
+            color: white;
+        }
+
+        .btn-red {
+            background: #ef4444;
+            color: white;
+        }
+
+        .badge {
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.8em;
+            font-weight: bold;
+        }
+
+        .bg-warning {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        .bg-danger {
+            background: #fee2e2;
+            color: #dc2626;
+        }
     </style>
 </head>
+
 <body>
     <div class="container">
         <h1>Aurelia Hotels A — Admin Control Platform</h1>
@@ -28,31 +94,138 @@
             <h2>MCP Tools Management (Runtime Toggle)</h2>
             <table id="tools-table">
                 <thead>
-                    <tr><th>Tool Name</th><th>Status</th><th>Action</th></tr>
+                    <tr>
+                        <th>Tool Name</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                    </tr>
                 </thead>
                 <tbody></tbody>
             </table>
         </div>
 
-        <!-- Section 2: HITL & Failure Ticket Queue -->
+        <!-- Section 2A: HITL Approval Queue -->
         <div class="card">
-            <h2>Pending Tasks & Failure Tickets</h2>
-            <table id="tasks-table">
+            <h2>Pending HITL Approvals</h2>
+            <p style="color:#64748b; font-size:0.9em;">Expected pauses awaiting a manager's decision before the run can
+                continue.</p>
+            <table id="hitl-table">
                 <thead>
-                    <tr><th>Thread ID</th><th>Booking ID</th><th>Status</th><th>Details</th><th>Action</th></tr>
+                    <tr>
+                        <th>Thread ID</th>
+                        <th>Booking ID</th>
+                        <th>Total Price</th>
+                        <th>Action</th>
+                    </tr>
                 </thead>
                 <tbody></tbody>
             </table>
         </div>
 
-        <!-- Section 3: RAG Document Management -->
+        <!-- Section 2B: Failure Ticket Queue -->
+        <div class="card">
+            <h2>Failure Tickets</h2>
+            <p style="color:#64748b; font-size:0.9em;">Unplanned failures a node hit and could not recover from on its
+                own.</p>
+            <table id="tickets-table">
+                <thead>
+                    <tr>
+                        <th>Ticket ID</th>
+                        <th>Thread ID</th>
+                        <th>Node</th>
+                        <th>Status</th>
+                        <th>Error</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Section 2D: Complaint Resolution Graph -->
+        <div class="card">
+            <h2>Complaint Resolution — Pending Manager Approvals</h2>
+            <p style="color:#64748b; font-size:0.9em;">Offers at or above the $100 policy threshold, or a negotiation
+                that exhausted its rounds.</p>
+            <table id="complaint-hitl-table">
+                <thead>
+                    <tr>
+                        <th>Thread ID</th>
+                        <th>Reason</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Round</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <div class="card">
+            <h2>Complaint Resolution — Awaiting Guest Reply</h2>
+            <p style="color:#64748b; font-size:0.9em;">Offer sent; waiting on the guest's decision (record it here once
+                it arrives, via whatever real channel).</p>
+            <table id="complaint-guest-table">
+                <thead>
+                    <tr>
+                        <th>Thread ID</th>
+                        <th>Type</th>
+                        <th>Amount</th>
+                        <th>Round</th>
+                        <th>Guest Decision</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
+        <!-- Section 2E: Incident & Maintenance Escalation (Graph #3 — Person C) -->
+        <div class="card">
+            <h2>Incident &amp; Maintenance Escalation — Report New Incident</h2>
+            <p style="color:#64748b; font-size:0.9em;">High-severity issues trigger an interrupt-based manager approval;
+                low/medium are resolved automatically.</p>
+            <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+                <input id="inc-guest" type="text" placeholder="Guest ID"
+                    style="padding:8px; border:1px solid #e2e8f0; border-radius:4px; flex:1;" />
+                <input id="inc-room" type="text" placeholder="Room Number"
+                    style="padding:8px; border:1px solid #e2e8f0; border-radius:4px; flex:1;" />
+                <input id="inc-desc" type="text" placeholder="Issue description (e.g. flooding in bathroom)"
+                    style="padding:8px; border:1px solid #e2e8f0; border-radius:4px; flex:3;" />
+                <button class="btn-green" onclick="startIncident()" id="incident-submit-btn">Report Incident</button>
+            </div>
+            <div id="incident-result" style="font-size:0.85em; color:#0f766e; margin-top:4px;"></div>
+        </div>
+
+        <div class="card">
+            <h2>Incident Escalation — Pending HITL Approvals</h2>
+            <p style="color:#64748b; font-size:0.9em;">High-severity incidents paused at the manager approval gate.
+                Approve to dispatch, decline to log and close.</p>
+            <table id="incident-hitl-table">
+                <thead>
+                    <tr>
+                        <th>Thread ID</th>
+                        <th>Room</th>
+                        <th>Severity</th>
+                        <th>Issue</th>
+                        <th>Est. Cost</th>
+                        <th>Action</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+
         <div class="card">
             <h2>RAG Document Management</h2>
             <input type="file" id="doc-upload" />
             <button onclick="uploadDoc()" class="btn-green">Upload Document</button>
             <table id="docs-table" style="margin-top: 15px;">
                 <thead>
-                    <tr><th>Filename</th><th>Action</th></tr>
+                    <tr>
+                        <th>Filename</th>
+                        <th>Action</th>
+                    </tr>
                 </thead>
                 <tbody></tbody>
             </table>
@@ -61,76 +234,270 @@
 
     <script>
         async function loadTools() {
-            const res = await fetch('/api/admin/tools');
-            const tools = await res.json();
-            const tbody = document.querySelector('#tools-table tbody');
-            tbody.innerHTML = '';
-            for (const [tool, enabled] of Object.entries(tools)) {
-                tbody.innerHTML += `
-                    <tr>
-                        <td><strong>${tool}</strong></td>
-                        <td>${enabled ? '<span style="color:green">Active</span>' : '<span style="color:red">Disabled</span>'}</td>
-                        <td>
-                            <button class="${enabled ? 'btn-red' : 'btn-green'}" onclick="toggleTool('${tool}', ${!enabled})">
-                                ${enabled ? 'Disable' : 'Enable'}
-                            </button>
-                        </td>
-                    </tr>`;
-            }
+            try {
+                const res = await fetch('/api/admin/tools');
+                const tools = await res.json();
+                const tbody = document.querySelector('#tools-table tbody');
+                tbody.innerHTML = '';
+                for (const [tool, enabled] of Object.entries(tools)) {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><strong>${tool}</strong></td>
+                            <td>${enabled ? '<span style="color:green">Active</span>' : '<span style="color:red">Disabled</span>'}</td>
+                            <td>
+                                <button class="${enabled ? 'btn-red' : 'btn-green'}" onclick="toggleTool('${tool}', ${!enabled})">
+                                    ${enabled ? 'Disable' : 'Enable'}
+                                </button>
+                            </td>
+                        </tr>`;
+                }
+            } catch (e) { console.error(e); }
         }
 
         async function toggleTool(tool, enabled) {
             await fetch('/api/admin/tools/toggle', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({tool_name: tool, enabled})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ tool_name: tool, enabled })
             });
             loadTools();
         }
 
-        async function loadTasks() {
-            const res = await fetch('/api/admin/pending-tasks');
-            const tasks = await res.json();
-            const tbody = document.querySelector('#tasks-table tbody');
-            tbody.innerHTML = '';
-            tasks.forEach(t => {
-                const isHitl = t.status === 'PAUSED_HITL';
-                tbody.innerHTML += `
-                    <tr>
-                        <td><code>${t.thread_id.substring(0,8)}...</code></td>
-                        <td>${t.booking_id}</td>
-                        <td><span class="badge ${isHitl ? 'bg-warning' : 'bg-danger'}">${t.status}</span></td>
-                        <td>${isHitl ? '$' + t.total_price + ' approval required' : t.error_message}</td>
-                        <td>
-                            <button class="btn-green" onclick="resolveTask('${t.thread_id}', '${isHitl ? 'approve' : 'resolve'}')">
-                                ${isHitl ? 'Approve & Resume' : 'Resolve Ticket'}
-                            </button>
-                        </td>
-                    </tr>`;
-            });
+        async function loadHitlTasks() {
+            try {
+                const res = await fetch('/api/admin/hitl-tasks');
+                const tasks = await res.json();
+                const tbody = document.querySelector('#hitl-table tbody');
+                tbody.innerHTML = '';
+                if (!tasks.length) {
+                    tbody.innerHTML = '<tr><td colspan="4" style="color:#94a3b8;">No pending approvals.</td></tr>';
+                    return;
+                }
+                tasks.forEach(t => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><code>${t.thread_id.substring(0, 8)}...</code></td>
+                            <td>${t.booking_id}</td>
+                            <td>$${t.total_price}</td>
+                            <td><button class="btn-green" onclick="approveHitl('${t.thread_id}')">Approve & Resume</button></td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
         }
 
-        async function resolveTask(threadId, action) {
-            await fetch('/api/admin/tasks/action', {
+        async function approveHitl(threadId) {
+            await fetch('/api/admin/hitl-tasks/approve', {
                 method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({thread_id: threadId, action: action})
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ thread_id: threadId })
             });
-            loadTasks();
+            loadHitlTasks();
+        }
+
+        async function loadTickets() {
+            try {
+                const res = await fetch('/api/admin/tickets');
+                const tickets = await res.json();
+                const tbody = document.querySelector('#tickets-table tbody');
+                tbody.innerHTML = '';
+                if (!tickets.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="color:#94a3b8;">No failure tickets.</td></tr>';
+                    return;
+                }
+                tickets.forEach(t => {
+                    const badgeClass = t.status === 'resolved' ? 'bg-warning' : 'bg-danger';
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><code>${t.ticket_id.substring(0, 8)}...</code></td>
+                            <td><code>${t.thread_id.substring(0, 8)}...</code></td>
+                            <td>${t.node_name || '-'}</td>
+                            <td><span class="badge ${badgeClass}">${t.status}</span></td>
+                            <td>${t.error_message || ''}</td>
+                            <td>
+                                ${t.status !== 'resolved' ? `
+                                    <button onclick="setTicketStatus('${t.ticket_id}', 'investigating')">Investigating</button>
+                                    <button class="btn-green" onclick="resolveTicket('${t.ticket_id}')">Resolve & Resume</button>
+                                ` : ''}
+                            </td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function setTicketStatus(ticketId, status) {
+            await fetch(`/api/admin/tickets/${ticketId}/status`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ status })
+            });
+            loadTickets();
+        }
+
+        async function resolveTicket(ticketId) {
+            await fetch(`/api/admin/tickets/${ticketId}/resolve`, { method: 'POST' });
+            loadTickets();
+        }
+
+        async function loadComplaintHitlTasks() {
+            try {
+                const res = await fetch('/api/admin/complaints/hitl-tasks');
+                const tasks = await res.json();
+                const tbody = document.querySelector('#complaint-hitl-table tbody');
+                tbody.innerHTML = '';
+                if (!tasks.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="color:#94a3b8;">No pending complaint approvals.</td></tr>';
+                    return;
+                }
+                tasks.forEach(t => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><code>${t.thread_id.substring(0, 16)}...</code></td>
+                            <td>${t.hitl_reason === 'rounds_exhausted' ? 'Negotiation exhausted' : 'Amount threshold'}</td>
+                            <td>${t.proposed_type}</td>
+                            <td>$${t.proposed_amount}</td>
+                            <td>${t.round_number} / ${t.max_rounds}</td>
+                            <td>
+                                <button class="btn-green" onclick="approveComplaintHitl('${t.thread_id}', true)">Approve</button>
+                                <button class="btn-red" onclick="approveComplaintHitl('${t.thread_id}', false)">Decline</button>
+                            </td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function approveComplaintHitl(threadId, approved) {
+            await fetch('/api/admin/complaints/hitl-tasks/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ thread_id: threadId, approved })
+            });
+            refreshAllData();
+        }
+
+        async function loadComplaintGuestQueue() {
+            try {
+                const res = await fetch('/api/admin/complaints/awaiting-guest');
+                const tasks = await res.json();
+                const tbody = document.querySelector('#complaint-guest-table tbody');
+                tbody.innerHTML = '';
+                if (!tasks.length) {
+                    tbody.innerHTML = '<tr><td colspan="5" style="color:#94a3b8;">No tasks awaiting guest reply.</td></tr>';
+                    return;
+                }
+                tasks.forEach(t => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><code>${t.thread_id.substring(0, 16)}...</code></td>
+                            <td>${t.proposed_type}</td>
+                            <td>$${t.proposed_amount}</td>
+                            <td>${t.round_number} / ${t.max_rounds}</td>
+                            <td>
+                                <button class="btn-green" onclick="recordGuestResponse('${t.thread_id}', 'accept')">Accept</button>
+                                <button onclick="recordGuestResponse('${t.thread_id}', 'counter')">Counter</button>
+                                <button class="btn-red" onclick="recordGuestResponse('${t.thread_id}', 'reject')">Reject</button>
+                            </td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function recordGuestResponse(threadId, decision) {
+            await fetch('/api/admin/complaints/guest-response', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ thread_id: threadId, guest_decision: decision })
+            });
+            refreshAllData();
+        }
+
+        // ---- Incident & Maintenance Escalation (Graph 3) ----
+        async function startIncident() {
+            const guest = document.getElementById('inc-guest').value.trim();
+            const room = document.getElementById('inc-room').value.trim();
+            const desc = document.getElementById('inc-desc').value.trim();
+            if (!guest || !room || !desc) {
+                alert('Please fill in all fields before reporting an incident.');
+                return;
+            }
+            const btn = document.getElementById('incident-submit-btn');
+            btn.disabled = true;
+            btn.textContent = 'Reporting...';
+            try {
+                const res = await fetch('/api/incidents/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ guest_id: guest, room_number: room, issue_description: desc })
+                });
+                const data = await res.json();
+                const resultEl = document.getElementById('incident-result');
+                const st = data.state;
+                const sev = st ? st.severity_level : '?';
+                const status = st ? st.status : '?';
+                resultEl.textContent = `✓ Incident reported (severity: ${sev}, status: ${status}, thread: ${data.thread_id ? data.thread_id.substring(0, 12) : '?'}...)`;
+                document.getElementById('inc-guest').value = '';
+                document.getElementById('inc-room').value = '';
+                document.getElementById('inc-desc').value = '';
+            } catch (e) { console.error(e); }
+            btn.disabled = false;
+            btn.textContent = 'Report Incident';
+            refreshAllData();
+        }
+
+        async function loadIncidentHitlTasks() {
+            try {
+                const res = await fetch('/api/admin/incidents/hitl-tasks');
+                const tasks = await res.json();
+                const tbody = document.querySelector('#incident-hitl-table tbody');
+                tbody.innerHTML = '';
+                if (!tasks || !tasks.length) {
+                    tbody.innerHTML = '<tr><td colspan="6" style="color:#94a3b8;">No pending incident approvals.</td></tr>';
+                    return;
+                }
+                tasks.forEach(t => {
+                    const plan = t.resolution_plan || {};
+                    tbody.innerHTML += `
+                        <tr>
+                            <td><code>${t.thread_id.substring(0, 16)}...</code></td>
+                            <td>${t.room_number || '-'}</td>
+                            <td><span class="badge ${t.severity_level === 'high' ? 'bg-danger' : 'bg-warning'}">${t.severity_level || '-'}</span></td>
+                            <td style="max-width:280px; word-break:break-word;">${t.issue_description || '-'}</td>
+                            <td>$${plan.estimated_cost != null ? plan.estimated_cost.toFixed(2) : '-'}</td>
+                            <td>
+                                <button class="btn-green" onclick="approveIncidentHitl('${t.thread_id}', true)">Approve</button>
+                                <button class="btn-red" onclick="approveIncidentHitl('${t.thread_id}', false)">Decline</button>
+                            </td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
+        }
+
+        async function approveIncidentHitl(threadId, approved) {
+            await fetch('/api/admin/incidents/hitl-tasks/approve', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ thread_id: threadId, approved })
+            });
+            refreshAllData();
         }
 
         async function loadDocs() {
-            const res = await fetch('/api/admin/documents');
-            const data = await res.json();
-            const tbody = document.querySelector('#docs-table tbody');
-            tbody.innerHTML = '';
-            data.documents.forEach(doc => {
-                tbody.innerHTML += `
-                    <tr>
-                        <td>${doc}</td>
-                        <td><button class="btn-red" onclick="deleteDoc('${doc}')">Delete</button></td>
-                    </tr>`;
-            });
+            try {
+                const res = await fetch('/api/admin/documents');
+                const data = await res.json();
+                const tbody = document.querySelector('#docs-table tbody');
+                tbody.innerHTML = '';
+                if (!data.documents || !data.documents.length) {
+                    tbody.innerHTML = '<tr><td colspan="2" style="color:#94a3b8;">No documents uploaded.</td></tr>';
+                    return;
+                }
+                data.documents.forEach(doc => {
+                    tbody.innerHTML += `
+                        <tr>
+                            <td>${doc}</td>
+                            <td><button class="btn-red" onclick="deleteDoc('${doc}')">Delete</button></td>
+                        </tr>`;
+                });
+            } catch (e) { console.error(e); }
         }
 
         async function uploadDoc() {
@@ -148,10 +515,23 @@
             loadDocs();
         }
 
+        function refreshAllData() {
+            loadTools();
+            loadHitlTasks();
+            loadTickets();
+            loadComplaintHitlTasks();
+            loadComplaintGuestQueue();
+            loadIncidentHitlTasks();
+            loadDocs();
+        }
+
         // Initialize dashboard
-        loadTools();
-        loadTasks();
-        loadDocs();
+        refreshAllData();
+
+        // Auto-refresh tables every 5 seconds
+        setInterval(refreshAllData, 5000);
+
     </script>
 </body>
+
 </html>

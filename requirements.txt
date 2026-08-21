@@ -7,3 +7,17 @@ numpy
 scikit-learn
 pypdf
 tqdm
+
+# Platform (admin + user web surfaces)
+fastapi
+uvicorn
+python-multipart
+
+# State graphs (checkpointing, cycles, HITL/ticket nodes)
+langgraph
+langgraph-checkpoint-sqlite
+langchain_text_splitters
+
+# MCP server layer
+mcp<2.0.0
+jsonschema

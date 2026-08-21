@@ -1,11 +1,16 @@
 import sys
 import os
 from typing import Dict, Any
+from langgraph.types import interrupt
+from langchain_core.runnables import RunnableConfig
 from .schemas import VIPBookingState
+from .tickets import create_ticket
 
 # Connect to existing mcp_server tools directly
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from mcp_server.tools import search_available_rooms, analyze_reservation
+
+GRAPH_NAME = "vip_booking_graph"
 
 def task_decomposition_node(state: VIPBookingState) -> Dict[str, Any]:
     """LLM Addition 1: Decomposes guest request into discrete room search subtasks."""
@@ -66,10 +71,91 @@ def constrained_react_node(state: VIPBookingState) -> Dict[str, Any]:
 
 
 def hitl_pause_node(state: VIPBookingState) -> Dict[str, Any]:
-    """HITL Node: Pauses execution state for manager approval."""
+    """HITL Node: pauses execution for manager approval.
+
+    Deliberately holds NO separate persisted record beyond the LangGraph
+    checkpoint itself -- this is an *expected* pause the graph is designed
+    to make, not a failure. Approving it is just resuming this one run.
+    Contrast with create_ticket_node below, which writes an independent,
+    inspectable row precisely because a ticket is *not* expected and needs
+    a lifecycle of its own. See state_graph/tickets.py module docstring.
+    """
     return {"status": "PAUSED_HITL"}
 
 
-def create_ticket_node(state: VIPBookingState) -> Dict[str, Any]:
-    """Ticket Node: Pauses execution state on tool/system failure."""
-    return {"status": "FAILED_TICKET"}
+def create_ticket_node(state: VIPBookingState, config: RunnableConfig) -> Dict[str, Any]:
+    """Ticket Node: fires only on a genuine unplanned failure upstream
+    (see constrained_react_node's except block) -- never called to simulate
+    a demo ticket. Writes a real row to the Tickets table via
+    state_graph.tickets.create_ticket(), independent of and distinguishable
+    from the HITL path above, then stores the ticket_id back into graph
+    state so the checkpoint and the ticket record can be cross-referenced.
+    """
+    thread_id = None
+    if config and isinstance(config, dict):
+        thread_id = config.get("configurable", {}).get("thread_id")
+
+    ticket_id = create_ticket(
+        thread_id=thread_id or state.get("booking_id", "unknown-thread"),
+        graph_name=GRAPH_NAME,
+        node_name="constrained_react_node",
+        error_message=state.get("error_message") or "Unspecified failure",
+    )
+
+    return {"status": "FAILED_TICKET", "ticket_id": ticket_id}
+
+
+# ---------------------------------------------------------------------------
+# Shared HITL Infrastructure (reusable by Graph 1, Graph 2, and Graph 3)
+# ---------------------------------------------------------------------------
+
+def shared_hitl_approval_node(state: dict) -> dict:
+    """Generic interrupt()-based HITL node reusable by any state graph.
+
+    Accepts a plain dict so it is not tied to any single TypedDict schema —
+    Graph 1, Graph 2, and Graph 3 can all route into this node without a
+    type mismatch. The caller is responsible for storing the result keys that
+    matter to their own schema (is_approved / human_approved / status).
+
+    Usage pattern (any graph):
+        builder.add_node("hitl_approval", shared_hitl_approval_node)
+        # The interrupt() payload is built from whatever is in state;
+        # only recognised keys are forwarded so unknown keys are silently dropped.
+
+    The interrupt() value is whatever the platform passes via
+    Command(resume={"approved": True/False, "feedback": "..."}):
+        - "approved" → bool decision
+        - "feedback" → optional free-text from the manager
+
+    Returns keys common across all three graph schemas:
+        is_approved    (Graph 1 / Graph 2 HITL key)
+        human_approved (Graph 3 HITL key)
+        status         ("APPROVED" or "DECLINED")
+        hitl_feedback  (optional manager comment, if provided)
+    """
+    # Build the interrupt payload from the state keys that are meaningful to
+    # a manager reviewing an approval request — drop None values to keep the
+    # payload readable on the platform side.
+    _FORWARD_KEYS = {
+        "kind", "severity_level", "severity", "issue_description", "room_number",
+        "guest_id", "booking_id", "reservation_id", "issue_type",
+        "proposed_type", "proposed_amount", "total_price", "itinerary_items",
+        "resolution_plan", "policy_analysis", "policy_context",
+        "round_number", "max_rounds", "hitl_reason", "request_id",
+        "estimated_cost",
+    }
+    payload = {k: v for k, v in state.items() if k in _FORWARD_KEYS and v is not None}
+    if "kind" not in payload:
+        payload["kind"] = "generic_hitl_approval"
+
+    decision = interrupt(payload)
+
+    approved = bool(decision.get("approved"))
+    feedback = decision.get("feedback") or ""
+
+    return {
+        "is_approved": approved,          # Graph 1 + Graph 2 key
+        "human_approved": approved,       # Graph 3 key
+        "status": "APPROVED" if approved else "DECLINED",
+        "hitl_feedback": feedback,
+    }
