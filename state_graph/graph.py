@@ -4,7 +4,7 @@ from langgraph.graph import StateGraph, END
 from langgraph.checkpoint.sqlite import SqliteSaver
 
 from .schemas import VIPBookingState
-from .nodes import (
+from .graph_vip import (
     task_decomposition_node,
     constrained_react_node,
     hitl_pause_node,
