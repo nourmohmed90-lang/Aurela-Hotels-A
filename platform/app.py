@@ -91,21 +91,20 @@ class HitlApproveRequest(BaseModel):
 
 @app.post("/api/admin/hitl-tasks/approve")
 def approve_hitl_task(req: HitlApproveRequest):
-    """Approves a HITL-paused run and resumes it from its checkpoint."""
+    """Approves a HITL-paused run and resumes it from its checkpoint via interrupt()."""
     config = {"configurable": {"thread_id": req.thread_id}}
     state_obj = vip_booking_graph.get_state(config)
 
     if not state_obj or not state_obj.values:
         raise HTTPException(status_code=404, detail="Run thread not found.")
-    if state_obj.values.get("status") != "PAUSED_HITL":
-        raise HTTPException(status_code=400, detail="This run is not awaiting HITL approval.")
 
-    current_state = dict(state_obj.values)
-    current_state["is_approved"] = True
-    current_state["status"] = "APPROVED"
-
-    resumed_state = vip_booking_graph.invoke(current_state, config=config)
-    return {"success": True, "new_status": resumed_state.get("status")}
+    # Resume from the interrupt() inside shared_hitl_approval_node, not from the entry point.
+    # This prevents decompose/execute_react from silently re-running.
+    result = vip_booking_graph.invoke(
+        Command(resume={"approved": True, "feedback": ""}),
+        config=config
+    )
+    return {"success": True, "new_status": result.get("status")}
 
 # ==========================================
 # 2B. FAILURE TICKET QUEUE

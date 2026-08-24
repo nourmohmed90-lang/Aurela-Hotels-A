@@ -8,7 +8,8 @@ from .graph_vip import (
     task_decomposition_node,
     constrained_react_node,
     hitl_pause_node,
-    create_ticket_node
+    create_ticket_node,
+    shared_hitl_approval_node,
 )
 
 # Routing Logic
@@ -24,7 +25,9 @@ builder = StateGraph(VIPBookingState)
 
 builder.add_node("decompose", task_decomposition_node)
 builder.add_node("execute_react", constrained_react_node)
+# hitl_pause_node kept for legacy status tagging; real interrupt() pause is in shared_hitl_approval_node
 builder.add_node("hitl_pause", hitl_pause_node)
+builder.add_node("hitl_approval", shared_hitl_approval_node)
 builder.add_node("create_ticket", create_ticket_node)
 
 builder.set_entry_point("decompose")
@@ -40,7 +43,11 @@ builder.add_conditional_edges(
     }
 )
 
-builder.add_edge("hitl_pause", END)
+# hitl_pause tags state then hands off to the interrupt()-based approval node
+builder.add_edge("hitl_pause", "hitl_approval")
+
+# After the manager acts via Command(resume=...), the graph continues to END
+builder.add_edge("hitl_approval", END)
 builder.add_edge("create_ticket", END)
 
 # Durable Checkpointing pointing directly to existing database/hotel.db
