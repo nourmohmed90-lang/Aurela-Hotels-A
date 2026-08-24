@@ -48,11 +48,11 @@ def _assert_checkpoint_exists(thread_id: str) -> dict:
     conn.close()
     if not rows:
         raise AssertionError(
-            f"❌ ASSERTION FAILED: No checkpoint found for thread_id={thread_id!r} in {DB_PATH}\n"
+            f"[FAIL] ASSERTION FAILED: No checkpoint found for thread_id={thread_id!r} in {DB_PATH}\n"
             "The graph did not persist state as expected."
         )
     row = dict(rows[0])
-    print(f"  ✅ Checkpoint confirmed in hotel.db (checkpoint_id={row.get('checkpoint_id', '?')})")
+    print(f"  [OK] Checkpoint confirmed in hotel.db (checkpoint_id={row.get('checkpoint_id', '?')})")  # noqa: E501
     return row
 
 
@@ -99,9 +99,9 @@ def run_fresh(thread_id: str) -> None:
     _assert_checkpoint_exists(thread_id)
 
     _hr()
-    print("\n✅ PHASE 1 COMPLETE: Graph paused at HITL interrupt with state saved to hotel.db")
+    print("\n[DONE] PHASE 1 COMPLETE: Graph paused at HITL interrupt with state saved to hotel.db")
     _hr("-")
-    print("\n📌 TO SIMULATE A CRASH AND RESUME:")
+    print("\n[NOTE] TO SIMULATE A CRASH AND RESUME:")
     print(f"\n   1. Kill this process now (Ctrl+C or kill -9 <PID>).")
     print(f"   2. The checkpoint is already saved to hotel.db.")
     print(f"   3. Resume from the exact HITL node by running:\n")
@@ -124,7 +124,7 @@ def resume_from_checkpoint(thread_id: str, approved: bool = True) -> None:
 
     _hr()
     print(f"PHASE 2 — Resuming from checkpoint (thread_id={thread_id!r})")
-    print(f"Manager decision: {'APPROVED ✅' if approved else 'DECLINED ❌'}")
+    print(f"Manager decision: {'APPROVED [YES]' if approved else 'DECLINED [NO]'}")
     _hr()
 
     config = {"configurable": {"thread_id": thread_id}}
@@ -147,7 +147,7 @@ def resume_from_checkpoint(thread_id: str, approved: bool = True) -> None:
         print(f"       Action taken    : {plan.get('action')}")
 
     _hr()
-    print("\n✅ CRASH-AND-RESUME DEMO COMPLETE")
+    print("\n[DONE] CRASH-AND-RESUME DEMO COMPLETE")
     print("   The graph resumed from the HITL checkpoint node — no earlier nodes re-ran.")
     _hr()
 
